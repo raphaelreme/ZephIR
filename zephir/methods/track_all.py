@@ -8,12 +8,11 @@ from scipy.interpolate import griddata
 from ..models.losses import *
 from ..utils.utils import *
 
-
 def track_all(
     container,
     results,
     zephir,
-    zephod,
+    detections_sequence,
     clip_grad,
     lambda_t,
     lambda_d,
@@ -94,15 +93,19 @@ def track_all(
 
         with torch.no_grad():
 
-            # compiling Zephod results for feature detection loss, L_D
-            input_tensor_d = []
-            if lambda_d > 0 and zephod is not None:
+            # Use given detections rather than ZephOD
+            # (No need to retrain ZephOD and rely on a "true" detection algorithm
+            # rather than the ones implemented in zephod/channels)
+            input_tensor_d = None
+            if lambda_d > 0 and detections_sequence:
+                input_tensor_d = []
                 for _t in t_patch:
-                    data = get_data(dataset, _t, g=gamma, c=channel)
-                    _pred = torch.sigmoid(zephod(data))
-                    _pred = (torch.max(_pred) - _pred) / torch.max(_pred)
-                    input_tensor_d.append(torch.where(_pred < 0.5, 0., 0.5))
-                input_tensor_d = torch.stack(input_tensor_d, dim=0)
+                    # data = get_data(dataset, _t, g=gamma, c=channel)
+                    # _pred = torch.sigmoid(zephod(data))
+                    # _pred = (torch.max(_pred) - _pred) / torch.max(_pred)
+                    # input_tensor_d.append(torch.where(_pred < 0.5, 0., 0.5))
+                    input_tensor_d.append((detections_sequence[t].segmentation[None, None] == 0) * 0.5)
+                input_tensor_d = torch.stack(input_tensor_d, dim=0).to(dev)
                 input_tensor_d = blur3d(input_tensor_d, (1, 5, 5), (1, 2, 2), dev=dev)
                 input_tensor_d.requires_grad = False
 
@@ -201,7 +204,7 @@ def track_all(
 
         # training loop here
         zephir.train()
-        pbar = tqdm(range(n_epoch + n_epoch_d), desc='Tracking', unit='epochs')
+        pbar = tqdm(range(n_epoch + n_epoch_d * (input_tensor_d is not None)), desc='Tracking', unit='epochs')
         for epoch in pbar:
 
             if (epoch + 1) % nb_epoch == 0:

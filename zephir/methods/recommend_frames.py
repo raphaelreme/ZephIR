@@ -32,7 +32,7 @@ from ..utils.utils import *
 
 
 def recommend_frames(
-    dataset, n_frames, n_iter, t_list, channel,
+    dataset: Path, n_frames, n_iter, t_list, channel,
     save_to_metadata, verbose
 ):
 
@@ -132,11 +132,18 @@ def recommend_frames(
         plt.show()
         print(f'\n\nOptimized score per reference frame: {s_ref}')
 
+
+    frames = [int(i) for i in t_ref]
+
+    (dataset / "_zephir_frames.json").write_text(json.dumps(frames), encoding="utf-8")
+
     if save_to_metadata:
         print(f'\nSaving recommended reference frame list to metadata...')
-        update_metadata(dataset, {f't_ref': [int(i) for i in t_ref]})
+        update_metadata(dataset, {f't_ref': frames})
 
     print(f'\n\n*** DONE!\n')
+
+    return frames
 
 
 def main():

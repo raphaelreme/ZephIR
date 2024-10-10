@@ -10,17 +10,24 @@ import numpy as np
 import os
 import pandas as pd
 from pathlib import Path
+import torch
+
+import byotrack
 
 
-# default getters
+# Switch default getters for our use case using byotrack
 def get_slice(dataset: Path, t: int) -> np.ndarray:
     """Return a slice at specified index t.
     This should return a 4-D numpy array containing multi-channel volumetric data
     with the dimensions ordered as (C, Z, Y, X).
     """
-    h5_filename = dataset / "data.h5"
-    with h5py.File(h5_filename, 'r') as f:
-        return f["data"][t]
+    video = byotrack.Video(dataset / "video.mp4")
+    frame = video[int(t)][..., 0]  # / 255  # Select first channel (and Normalize ?)
+
+    if frame.ndim == 2:
+        return frame[None, None]
+
+    return frame[None]
 
 
 def get_annotation_df(dataset: Path) -> pd.DataFrame:
@@ -33,10 +40,26 @@ def get_annotation_df(dataset: Path) -> pd.DataFrame:
     - worldline_id: track or worldline ID as an integer
     - provenance: scorer or creator of the annotation as a byte string
     """
-    with h5py.File(dataset / 'annotations.h5', 'r') as f:
-        data = pd.DataFrame()
-        for k in f:
-            data[k] = f[k]
+    data = pd.DataFrame()
+
+    frames = json.loads((dataset / "_zephir_frames.json").read_text(encoding="utf-8"))
+
+    video = byotrack.Video(dataset / "video.mp4")
+    gt: np.ndarray = torch.load(dataset / "video_data.pt", weights_only=True)["mu"][frames].numpy()
+    frame_idx = np.zeros(gt.shape[:2], dtype=np.int32)
+    track_idx = np.zeros(gt.shape[:2], dtype=np.int32)
+    for i, frame in enumerate(frames):
+        frame_idx[i] = frame
+        track_idx[i] = np.arange(gt.shape[1])
+
+    data["x"] = gt[..., 1].ravel() / video.shape[2]
+    data["y"] = gt[..., 0].ravel() / video.shape[1]
+    data["z"] = np.zeros(gt.shape[:2], dtype=np.float32).ravel()
+
+    data["t_idx"] = frame_idx.ravel()  # [0 for i in range(len(gt))]
+    data["worldline_id"] = track_idx.ravel()
+    data["provenance"] = np.full(gt.shape[:2], b"GT").ravel()
+
     return data
 
 
@@ -49,7 +72,11 @@ def get_metadata(dataset: Path) -> dict:
     - shape_y
     - shape_x
     """
-    json_filename = dataset / "metadata.json"
-    with open(json_filename) as json_file:
-        metadata = json.load(json_file)
-    return metadata
+    video = byotrack.Video(dataset / "video.mp4")
+    return {
+        "shape_t": len(video),
+        "shape_c": 1,
+        "shape_z": 1,
+        "shape_y": video.shape[1],
+        "shape_x": video.shape[2],
+    }
