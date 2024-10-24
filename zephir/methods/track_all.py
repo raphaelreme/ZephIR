@@ -104,7 +104,11 @@ def track_all(
                     # _pred = torch.sigmoid(zephod(data))
                     # _pred = (torch.max(_pred) - _pred) / torch.max(_pred)
                     # input_tensor_d.append(torch.where(_pred < 0.5, 0., 0.5))
-                    input_tensor_d.append((detections_sequence[t].segmentation[None, None] == 0) * 0.5)
+                    if detections_sequence[t].dim == 2:  # Go to shape: T, B, C, Z, Y, X
+                        input_tensor_d.append((detections_sequence[t].segmentation[None, None, None] == 0) * 0.5)
+                    else:
+                        input_tensor_d.append((detections_sequence[t].segmentation[None, None] == 0) * 0.5)
+
                 input_tensor_d = torch.stack(input_tensor_d, dim=0).to(dev)
                 input_tensor_d = blur3d(input_tensor_d, (1, 5, 5), (1, 2, 2), dev=dev)
                 input_tensor_d.requires_grad = False
